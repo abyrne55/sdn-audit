@@ -1,39 +1,91 @@
+import json
+import os
 from util import OCMClient
+
 
 def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     """Queries OCM and returns a dict of key cluster stats"""
     cluster = ocm.get("/api/clusters_mgmt/v1/clusters/" + cluster_id).json()
-    subscription = ocm.get(cluster['subscription']['href']).json()
-    org_id = subscription['organization_id']
-    compute_machine_type = machine_type_cpu_qty(ocm, cluster['nodes']['compute_machine_type']['id'])
+    subscription = ocm.get(cluster["subscription"]["href"]).json()
+    org_id = subscription["organization_id"]
+    compute_machine_type = machine_type_cpu_qty(
+        ocm, cluster["nodes"]["compute_machine_type"]["id"]
+    )
     try:
-        compute_nodes = cluster['nodes']['compute']
-        total_nodes = cluster['nodes']['master'] + cluster['nodes']['infra'] + compute_nodes
+        compute_nodes = cluster["nodes"]["compute"]
+        total_nodes = (
+            cluster["nodes"]["master"] + cluster["nodes"]["infra"] + compute_nodes
+        )
         compute_vcpu_max = compute_machine_type * compute_nodes
     except KeyError:
-        max_replicas = cluster['nodes']['autoscale_compute']['max_replicas']
-        total_nodes = cluster['nodes']['master'] + cluster['nodes']['infra'] + max_replicas
-        compute_nodes = f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
+        max_replicas = cluster["nodes"]["autoscale_compute"]["max_replicas"]
+        total_nodes = (
+            cluster["nodes"]["master"] + cluster["nodes"]["infra"] + max_replicas
+        )
+        compute_nodes = (
+            f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
+        )
         compute_vcpu_max = compute_machine_type * max_replicas
-    org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()['name']
+    org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
     return {
-        'org_name': org_name,
-        'cid': cluster['id'],
-        'name': cluster['name'],
-        'product': cluster['product']['id'],
-        'cloud': cluster['cloud_provider']['id'],
-        'region': cluster['region']['id'],
-        'version': cluster['openshift_version'],
-        'state': cluster['state'],
-        'network': cluster['network']['type'],
-        'total_nodes': total_nodes,
-        'compute_nodes': compute_nodes,
-        'compute_vcpu_max': compute_vcpu_max,
-        'fips': cluster['fips'] if 'fips' in cluster else False,
-        'multi_az': cluster['multi_az'],
-        'limited_support': (cluster['status']['limited_support_reason_count'] > 0),
+        "org_name": org_name,
+        "cid": cluster["id"],
+        "name": cluster["name"],
+        "product": cluster["product"]["id"],
+        "cloud": cluster["cloud_provider"]["id"],
+        "region": cluster["region"]["id"],
+        "version": cluster["openshift_version"],
+        "state": cluster["state"],
+        "network": cluster["network"]["type"],
+        "total_nodes": total_nodes,
+        "compute_nodes": compute_nodes,
+        "compute_vcpu_max": compute_vcpu_max,
+        "fips": cluster["fips"] if "fips" in cluster else False,
+        "multi_az": cluster["multi_az"],
+        "limited_support": (cluster["status"]["limited_support_reason_count"] > 0),
     }
+
+
+def read_on_cluster_audit(cid_audit_dir: str, expected_cni=None) -> dict:
+    """
+    Returns a dictionary of info extracted from the provided cluster-specific
+    directory of on-cluster-audit results, optionally with a sanity check of
+    the expected CNI (raises ArithmeticError if expectation not met)
+    """
+    network_operator_path = os.path.join(cid_audit_dir, "network.operator.json")
+    with open(network_operator_path, encoding="UTF-8") as f:
+        net_spec = json.load(f)["spec"]
+        cni = net_spec["defaultNetwork"]["type"]
+        if expected_cni is not None and cni != expected_cni:
+            raise ArithmeticError(
+                f"expected CNI {expected_cni} but cluster thinks its CNI is {cni}"
+            )
+        audit_res = {
+            "mtu": "?",
+            "tunnel_port": "?",
+            "multitenant": "?",
+            "local_gateway": "?",
+        }
+        try:
+            if cni == "OpenShiftSDN":
+                sdn_cfg = net_spec["defaultNetwork"]["openshiftSDNConfig"]
+                audit_res["mtu"] = sdn_cfg["mtu"]
+                audit_res["tunnel_port"] = sdn_cfg["vxlanPort"]
+                audit_res["multitenant"] = sdn_cfg["mode"] == "Multitenant"
+                audit_res["local_gateway"] = "n/a"
+            if cni == "OVNKubernetes":
+                ovn_cfg = net_spec["defaultNetwork"]["ovnKubernetesConfig"]
+                audit_res["mtu"] = ovn_cfg["mtu"]
+                audit_res["tunnel_port"] = ovn_cfg["genevePort"]
+                audit_res["multitenant"] = "n/a"
+                audit_res["local_gateway"] = ovn_cfg["gatewayConfig"]["routingViaHost"]
+        except KeyError as exc:
+            print(f"WARN: {network_operator_path} missing expected key {exc}")
+    return audit_res
+
 
 def machine_type_cpu_qty(ocm: OCMClient, machine_type: str) -> int:
     """Returns the number of vCPUs present in a given machine type"""
-    return ocm.get("/api/clusters_mgmt/v1/machine_types/"+machine_type).json()['cpu']['value']
+    return ocm.get("/api/clusters_mgmt/v1/machine_types/" + machine_type).json()["cpu"][
+        "value"
+    ]

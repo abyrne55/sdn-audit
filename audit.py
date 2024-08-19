@@ -1,5 +1,6 @@
 import argparse
 import csv
+import os
 from requests_cache import install_cache, NEVER_EXPIRE
 
 # Enable HTTP caching globally before importing network-using modules
@@ -11,7 +12,7 @@ install_cache(
 )
 # pylint: disable=wrong-import-position, C0103
 from util import OCMClient
-from data import describe_ocm_cluster
+from data import describe_ocm_cluster, read_on_cluster_audit
 
 # Parse command line arguments
 arg_parser = argparse.ArgumentParser(
@@ -27,6 +28,12 @@ arg_parser.add_argument(
     "csv_file",
     action="store",
     help="output path for the CSV containing audit results (see also -a, -c)",
+)
+arg_parser.add_argument(
+    "--on-cluster-audit-dir",
+    action="store",
+    metavar="PATH",
+    help="optional path to directory where on-cluster audit results are stored, organized by cluster ID",
 )
 arg_parser.add_argument(
     "-n",
@@ -53,12 +60,22 @@ ocm = OCMClient()
 csv_rows = [describe_ocm_cluster(ocm, cid.strip()) for cid in args.cid_file]
 args.cid_file.close()
 
+if args.on_cluster_audit_dir:
+    for i, csv_row in enumerate(csv_rows):
+        cid_audit_dir = os.path.join(args.on_cluster_audit_dir, csv_row["cid"])
+        try:
+            csv_rows[i] = csv_row | read_on_cluster_audit(
+                cid_audit_dir, csv_row["network"]
+            )
+        except OSError as exc:
+            print(f"WARN: could not find {cid_audit_dir}: {exc}")
+
 # Write rows to output CSV
-access_mode = 'x'
+access_mode = "x"
 if args.clobber:
-    access_mode = 'w'
+    access_mode = "w"
 if args.append:
-    access_mode = 'a'
+    access_mode = "a"
 with open(args.csv_file, access_mode, encoding="UTF-8") as csv_file:
     column_names = csv_rows[0].keys()
     csv_writer = csv.DictWriter(csv_file, column_names)
