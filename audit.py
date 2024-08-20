@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import csv
 import os
@@ -11,8 +12,8 @@ install_cache(
     allowable_methods=["GET"],
 )
 # pylint: disable=wrong-import-position, C0103
-from util import OCMClient
-from data import describe_ocm_cluster, read_on_cluster_audit
+from ocm import OCMClient
+from data import describe_ocm_cluster, parse_network_operator_spec, file_not_empty
 
 # Parse command line arguments
 arg_parser = argparse.ArgumentParser(
@@ -61,14 +62,23 @@ csv_rows = [describe_ocm_cluster(ocm, cid.strip()) for cid in args.cid_file]
 args.cid_file.close()
 
 if args.on_cluster_audit_dir:
-    for i, csv_row in enumerate(csv_rows):
-        cid_audit_dir = os.path.join(args.on_cluster_audit_dir, csv_row["cid"])
+    for i, row in enumerate(csv_rows):
+        cid_audit_dir = os.path.join(args.on_cluster_audit_dir, row["cid"])
         try:
-            csv_rows[i] = csv_row | read_on_cluster_audit(
-                cid_audit_dir, csv_row["network"]
+            csv_rows[i] = row | parse_network_operator_spec(
+                cid_audit_dir, row["network"]
             )
         except OSError as exc:
-            print(f"WARN: could not find {cid_audit_dir}: {exc}")
+            print(
+                f"WARN: failed to parse network operator spec from {cid_audit_dir}: {exc}"
+            )
+
+        for metric in ["egress_network_policy", "egress_cidrs", "multicast"]:
+            try:
+                csv_rows[i][metric] = file_not_empty(cid_audit_dir, metric)
+            except OSError as exc:
+                print(f"WARN: failed to parse {metric} from {cid_audit_dir}: {exc}")
+                csv_rows[i][metric] = "?"
 
 # Write rows to output CSV
 access_mode = "x"
