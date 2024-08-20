@@ -12,22 +12,26 @@ if [ "$#" -ne 2 ]; then
 fi
 
 while read CID; do
-    echo $CID
-    ocm backplane login $CID
     OUT="$2/$CID"
-    mkdir -p $OUT
-    oc get network.operator cluster -o json > $OUT/network.operator.json
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.type}' > $OUT/cni_type
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.openshiftSDNConfig.mtu}' > $OUT/sdn_mtu
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.ovnKubernetesConfig.mtu}' > $OUT/ovn_mtu
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.openshiftSDNConfig.vxlanPort}' > $OUT/sdn_tunnel_port
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.ovnKubernetesConfig.genevePort}' > $OUT/ovn_tunnel_port
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.ovnKubernetesConfig.gatewayConfig.routingViaHost}' > $OUT/local_gateway_mode
-    # oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.openshiftSDNConfig.mode}' > $OUT/multitenant
-    set +e
-    ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
-    oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
-    oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
-    set -e
+    if [ -d $OUT ]; then
+        echo "Skipping $CID because $OUT exists"
+    else
+        echo $CID
+        mkdir $OUT
+
+        # Log into the cluster
+        ocm backplane login $CID
+
+        # Describe the network operator resource (will be parsed by audit.py)
+        oc get network.operator cluster -o json > $OUT/network.operator.json
+
+        # Test a few key resources for certain conditions. We unset/set the 'e' flag here because
+        # these commands are expected to return error codes in many normal situations
+        set +e
+        oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
+        oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
+        ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
+        set -e
+    fi
     
 done < $1
