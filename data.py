@@ -1,6 +1,7 @@
 import json
 import os
-from util import OCMClient
+import pathlib
+from ocm import OCMClient
 
 
 def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
@@ -46,10 +47,10 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     }
 
 
-def read_on_cluster_audit(cid_audit_dir: str, expected_cni=None) -> dict:
+def parse_network_operator_spec(cid_audit_dir: str, expected_cni=None) -> dict:
     """
-    Returns a dictionary of info extracted from the provided cluster-specific
-    directory of on-cluster-audit results, optionally with a sanity check of
+    Returns a dictionary of info extracted from the network operator JSON spec
+    contained within on-cluster-audit results, optionally with a sanity check of
     the expected CNI (raises ArithmeticError if expectation not met)
     """
     network_operator_path = os.path.join(cid_audit_dir, "network.operator.json")
@@ -83,9 +84,25 @@ def read_on_cluster_audit(cid_audit_dir: str, expected_cni=None) -> dict:
             print(f"WARN: {network_operator_path} missing expected key {exc}")
     return audit_res
 
-
 def machine_type_cpu_qty(ocm: OCMClient, machine_type: str) -> int:
     """Returns the number of vCPUs present in a given machine type"""
     return ocm.get("/api/clusters_mgmt/v1/machine_types/" + machine_type).json()["cpu"][
         "value"
     ]
+
+def file_not_empty(dir_path: str, file_name: str) -> bool:
+    """
+    Returns true if a file exists and has more than just whitespace. Raises
+    OSError if file does not exist
+    """
+    p = pathlib.Path(os.path.join(dir_path, file_name))
+    return not is_nully_str(p.read_text(encoding="UTF-8")) 
+
+def is_nully_str(s):
+    """
+    Returns True if s is None, an empty or whitespace-filled string, or some variation of "NULL"
+    """
+    if s is None:
+        return True
+    s_strip = s.lower().strip()
+    return s_strip in ["", "null"]
