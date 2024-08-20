@@ -9,6 +9,7 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     cluster = ocm.get("/api/clusters_mgmt/v1/clusters/" + cluster_id).json()
     subscription = ocm.get(cluster["subscription"]["href"]).json()
     org_id = subscription["organization_id"]
+    org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
     compute_machine_type = machine_type_cpu_qty(
         ocm, cluster["nodes"]["compute_machine_type"]["id"]
     )
@@ -27,7 +28,7 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
             f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
         )
         compute_vcpu_max = compute_machine_type * max_replicas
-    org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
+
     return {
         "org_name": org_name,
         "cid": cluster["id"],
@@ -42,6 +43,7 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
         "compute_nodes": compute_nodes,
         "compute_vcpu_max": compute_vcpu_max,
         "fips": cluster["fips"] if "fips" in cluster else False,
+        "proxy": (len(cluster['proxy']) > 0) if "proxy" in cluster else False,
         "multi_az": cluster["multi_az"],
         "limited_support": (cluster["status"]["limited_support_reason_count"] > 0),
     }
