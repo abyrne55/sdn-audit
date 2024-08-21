@@ -11,15 +11,20 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     subscription = ocm.get(cluster["subscription"]["href"]).json()
     org_id = subscription["organization_id"]
     org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
-    compute_machine_type = machine_type_cpu_qty(
-        ocm, cluster["nodes"]["compute_machine_type"]["id"]
-    )
+
+    try:
+        compute_machine_type_cpus = machine_type_cpu_qty(
+            ocm, cluster["nodes"]["compute_machine_type"]["id"]
+        )
+    except KeyError:
+        compute_machine_type_cpus = -1
+
     try:
         compute_nodes = cluster["nodes"]["compute"]
         total_nodes = (
             cluster["nodes"]["master"] + cluster["nodes"]["infra"] + compute_nodes
         )
-        compute_vcpu_max = compute_machine_type * compute_nodes
+        compute_vcpu_max = compute_machine_type_cpus * compute_nodes
     except KeyError:
         max_replicas = cluster["nodes"]["autoscale_compute"]["max_replicas"]
         total_nodes = (
@@ -28,7 +33,7 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
         compute_nodes = (
             f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
         )
-        compute_vcpu_max = compute_machine_type * max_replicas
+        compute_vcpu_max = compute_machine_type_cpus * max_replicas
 
     try:
         local_zones = uses_local_zones(ocm, cluster["machine_pools"]["href"])

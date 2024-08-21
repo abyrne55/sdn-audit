@@ -17,17 +17,17 @@ while read CID; do
         echo "Skipping $CID because $OUT exists"
     else
         echo $CID
-        mkdir $OUT
 
         # Log into the cluster
-        ocm backplane login $CID
+        ocm backplane login $CID || continue
 
+	mkdir $OUT
+        set +e
         # Describe the network operator resource (will be parsed by audit.py)
         oc get network.operator cluster -o json > $OUT/network.operator.json
 
         # Test a few key resources for certain conditions. We unset/set the 'e' flag here because
         # these commands are expected to return error codes in many normal situations
-        set +e
         oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
         oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
         ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
