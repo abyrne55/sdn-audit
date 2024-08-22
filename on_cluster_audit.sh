@@ -12,26 +12,27 @@ if [ "$#" -ne 2 ]; then
 fi
 
 while read CID; do
+    
+    echo $CID
+
+    # Log into the cluster
+    ocm backplane login $CID || continue
+
     OUT="$2/$CID"
-    if [ -d $OUT ]; then
-        echo "Skipping $CID because $OUT exists"
-    else
-        echo $CID
+    mkdir -p $OUT
 
-        # Log into the cluster
-        ocm backplane login $CID || continue
+    # We unset/set the 'e' flag here because these commands are expected to return 
+    # error codes in many normal situations
+    set +e
+    # Describe the nodes and network operator resources (will be parsed by audit.py)
+    [ -f $OUT/nodes.json ] || oc get nodes -o json > $OUT/nodes.json
+    [ -f $OUT/network.operator.json ] || oc get network.operator cluster -o json > $OUT/network.operator.json
 
-	mkdir $OUT
-        set +e
-        # Describe the network operator resource (will be parsed by audit.py)
-        oc get network.operator cluster -o json > $OUT/network.operator.json
+    # Test a few key resources for certain conditions. 
+    [ -f $OUT/egress_cidrs ] || oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
+    [ -f $OUT/multicast ] || oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
+    [ -f $OUT/egress_network_policy ] || ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
+    set -e
 
-        # Test a few key resources for certain conditions. We unset/set the 'e' flag here because
-        # these commands are expected to return error codes in many normal situations
-        oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
-        oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
-        ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
-        set -e
-    fi
     
 done < $1
