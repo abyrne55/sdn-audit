@@ -2,7 +2,9 @@
 import argparse
 import csv
 import os
+import time
 from requests_cache import install_cache, NEVER_EXPIRE
+from requests import exceptions as req_exceptions
 
 # Enable HTTP caching globally before importing network-using modules
 install_cache(
@@ -58,7 +60,20 @@ args = arg_parser.parse_args()
 
 # Fetch data for each cluster ID in the cid_file
 ocm = OCMClient()
-csv_rows = [describe_ocm_cluster(ocm, cid.strip()) for cid in args.cid_file]
+csv_rows = []
+for cid in args.cid_file:
+    try:
+        csv_rows.append(describe_ocm_cluster(ocm, cid.strip()))
+    except req_exceptions.ConnectionError as exc:
+        print(f"WARN: Retrying {cid.strip()} in 5s due to {exc}")
+        time.sleep(5)
+        try:
+            csv_rows.append(describe_ocm_cluster(ocm, cid.strip()))
+        except Exception as exc2:
+            print(f"ERR: failed to handle {cid.strip()}: {exc2}")
+    except KeyError as exc:
+        print(f"ERR: failed to handle {cid.strip()} due to missing data in OCM: {exc}")
+#csv_rows = [describe_ocm_cluster(ocm, cid.strip()) for cid in args.cid_file]
 args.cid_file.close()
 
 if args.on_cluster_audit_dir:
@@ -71,6 +86,10 @@ if args.on_cluster_audit_dir:
         except OSError as exc:
             print(
                 f"WARN: failed to parse network operator spec from {cid_audit_dir}: {exc}"
+            )
+        except ArithmeticError as exc:
+            print(
+                f"ERR: LOOK INTO {cid.strip()}: {exc}"
             )
 
         for metric in ["egress_network_policy", "egress_cidrs", "multicast"]:

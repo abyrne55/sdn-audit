@@ -8,9 +8,12 @@ from ocm import OCMClient
 def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     """Queries OCM and returns a dict of key cluster stats"""
     cluster = ocm.get("/api/clusters_mgmt/v1/clusters/" + cluster_id).json()
-    subscription = ocm.get(cluster["subscription"]["href"]).json()
-    org_id = subscription["organization_id"]
-    org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
+    try:
+        subscription = ocm.get(cluster["subscription"]["href"]).json()
+        org_id = subscription["organization_id"]
+        org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
+    except KeyError:
+        org_name = org_id = "?"
 
     try:
         compute_machine_type_cpus = machine_type_cpu_qty(
@@ -26,14 +29,17 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
         )
         compute_vcpu_max = compute_machine_type_cpus * compute_nodes
     except KeyError:
-        max_replicas = cluster["nodes"]["autoscale_compute"]["max_replicas"]
-        total_nodes = (
-            cluster["nodes"]["master"] + cluster["nodes"]["infra"] + max_replicas
-        )
-        compute_nodes = (
-            f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
-        )
-        compute_vcpu_max = compute_machine_type_cpus * max_replicas
+        try:
+            max_replicas = cluster["nodes"]["autoscale_compute"]["max_replicas"]
+            total_nodes = (
+                cluster["nodes"]["master"] + cluster["nodes"]["infra"] + max_replicas
+            )
+            compute_nodes = (
+                f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
+            )
+            compute_vcpu_max = compute_machine_type_cpus * max_replicas
+        except KeyError:
+            max_replicas = total_nodes = compute_nodes = compute_vcpu_max = "?"
 
     try:
         local_zones = uses_local_zones(ocm, cluster["machine_pools"]["href"])
@@ -42,6 +48,7 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
 
     return {
         "org_name": org_name,
+        "org_id": org_id,
         "cid": cluster["id"],
         "name": cluster["name"],
         "product": cluster["product"]["id"],
@@ -70,8 +77,8 @@ def parse_network_operator_spec(cid_audit_dir: str, expected_cni=None) -> dict:
     network_operator_path = os.path.join(cid_audit_dir, "network.operator.json")
     with open(network_operator_path, encoding="UTF-8") as f:
         net_spec = json.load(f)["spec"]
-        cni = net_spec["defaultNetwork"]["type"]
-        if expected_cni is not None and cni != expected_cni:
+        cni = net_spec["defaultNetwork"]["type"].strip().lower()
+        if expected_cni is not None and cni != expected_cni.strip().lower():
             raise ArithmeticError(
                 f"expected CNI {expected_cni} but cluster thinks its CNI is {cni}"
             )
@@ -82,13 +89,13 @@ def parse_network_operator_spec(cid_audit_dir: str, expected_cni=None) -> dict:
             "local_gateway": "?",
         }
         try:
-            if cni == "OpenShiftSDN":
+            if cni == "openshiftsdn":
                 sdn_cfg = net_spec["defaultNetwork"]["openshiftSDNConfig"]
                 audit_res["mtu"] = sdn_cfg["mtu"]
                 audit_res["tunnel_port"] = sdn_cfg["vxlanPort"]
                 audit_res["multitenant"] = sdn_cfg["mode"] == "Multitenant"
                 audit_res["local_gateway"] = "n/a"
-            if cni == "OVNKubernetes":
+            if cni == "ovnkubernetes":
                 ovn_cfg = net_spec["defaultNetwork"]["ovnKubernetesConfig"]
                 audit_res["mtu"] = ovn_cfg["mtu"]
                 audit_res["tunnel_port"] = ovn_cfg["genevePort"]
