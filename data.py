@@ -11,35 +11,11 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
     try:
         subscription = ocm.get(cluster["subscription"]["href"]).json()
         org_id = subscription["organization_id"]
-        org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()["name"]
+        org_name = ocm.get("/api/accounts_mgmt/v1/organizations/" + org_id).json()[
+            "name"
+        ]
     except KeyError:
         org_name = org_id = "?"
-
-    try:
-        compute_machine_type_cpus = machine_type_cpu_qty(
-            ocm, cluster["nodes"]["compute_machine_type"]["id"]
-        )
-    except KeyError:
-        compute_machine_type_cpus = -1
-
-    try:
-        compute_nodes = cluster["nodes"]["compute"]
-        total_nodes = (
-            cluster["nodes"]["master"] + cluster["nodes"]["infra"] + compute_nodes
-        )
-        compute_vcpu_max = compute_machine_type_cpus * compute_nodes
-    except KeyError:
-        try:
-            max_replicas = cluster["nodes"]["autoscale_compute"]["max_replicas"]
-            total_nodes = (
-                cluster["nodes"]["master"] + cluster["nodes"]["infra"] + max_replicas
-            )
-            compute_nodes = (
-                f"{cluster['nodes']['autoscale_compute']['min_replicas']}-{max_replicas}"
-            )
-            compute_vcpu_max = compute_machine_type_cpus * max_replicas
-        except KeyError:
-            max_replicas = total_nodes = compute_nodes = compute_vcpu_max = "?"
 
     try:
         local_zones = uses_local_zones(ocm, cluster["machine_pools"]["href"])
@@ -57,9 +33,6 @@ def describe_ocm_cluster(ocm: OCMClient, cluster_id: str) -> dict:
         "version": cluster["openshift_version"],
         "state": cluster["state"],
         "network": cluster["network"]["type"],
-        "total_nodes": total_nodes,
-        "compute_nodes": compute_nodes,
-        "compute_vcpu_max": compute_vcpu_max,
         "fips": cluster["fips"] if "fips" in cluster else False,
         "proxy": (len(cluster["proxy"]) > 0) if "proxy" in cluster else False,
         "multi_az": cluster["multi_az"],
@@ -75,7 +48,7 @@ def parse_network_operator_spec(cid_audit_dir: str, expected_cni=None) -> dict:
     the expected CNI (raises ArithmeticError if expectation not met)
     """
     network_operator_path = os.path.join(cid_audit_dir, "network.operator.json")
-    with open(network_operator_path, encoding="UTF-8") as f:
+    with open(network_operator_path, "r", encoding="UTF-8") as f:
         net_spec = json.load(f)["spec"]
         cni = net_spec["defaultNetwork"]["type"].strip().lower()
         if expected_cni is not None and cni != expected_cni.strip().lower():
@@ -103,6 +76,38 @@ def parse_network_operator_spec(cid_audit_dir: str, expected_cni=None) -> dict:
                 audit_res["local_gateway"] = ovn_cfg["gatewayConfig"]["routingViaHost"]
         except KeyError as exc:
             print(f"WARN: {network_operator_path} missing expected key {exc}")
+    return audit_res
+
+
+def parse_nodes_spec(cid_audit_dir: str) -> dict:
+    """
+    Returns a dictionary of info extracted from the nodes JSON spec
+    contained within on-cluster-audit results
+    """
+    nodes_path = os.path.join(cid_audit_dir, "nodes.json")
+    with open(nodes_path, "r", encoding="UTF-8") as f:
+        nodes = json.load(f)["items"]
+        audit_res = {
+            "total_nodes": "?",
+            "compute_nodes": "?",
+            "compute_vcpu": "?",
+        }
+        audit_res["total_nodes"] = len(nodes)
+        try:
+            audit_res["compute_nodes"] = len(
+                [
+                    node
+                    for node in nodes
+                    if "node-role.kubernetes.io/worker" in node["metadata"]["labels"]
+                ]
+            )
+            audit_res["compute_vcpu"] = sum(
+                int(node["status"]["capacity"]["cpu"])
+                for node in nodes
+                if "node-role.kubernetes.io/worker" in node["metadata"]["labels"]
+            )
+        except KeyError as exc:
+            print(f"WARN: {nodes_path} missing expected key {exc}")
     return audit_res
 
 

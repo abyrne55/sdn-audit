@@ -14,8 +14,8 @@ install_cache(
     allowable_methods=["GET"],
 )
 # pylint: disable=wrong-import-position, C0103
+import data
 from ocm import OCMClient
-from data import describe_ocm_cluster, parse_network_operator_spec, file_not_empty
 
 # Parse command line arguments
 arg_parser = argparse.ArgumentParser(
@@ -63,12 +63,12 @@ ocm = OCMClient()
 csv_rows = []
 for cid in args.cid_file:
     try:
-        csv_rows.append(describe_ocm_cluster(ocm, cid.strip()))
+        csv_rows.append(data.describe_ocm_cluster(ocm, cid.strip()))
     except req_exceptions.ConnectionError as exc:
         print(f"WARN: Retrying {cid.strip()} in 5s due to {exc}")
         time.sleep(5)
         try:
-            csv_rows.append(describe_ocm_cluster(ocm, cid.strip()))
+            csv_rows.append(data.describe_ocm_cluster(ocm, cid.strip()))
         except Exception as exc2:
             print(f"ERR: failed to handle {cid.strip()}: {exc2}")
     except KeyError as exc:
@@ -79,8 +79,9 @@ args.cid_file.close()
 if args.on_cluster_audit_dir:
     for i, row in enumerate(csv_rows):
         cid_audit_dir = os.path.join(args.on_cluster_audit_dir, row["cid"])
+        # Parse the network operator spec and merge into row
         try:
-            csv_rows[i] = row | parse_network_operator_spec(
+            csv_rows[i] = csv_rows[i] | data.parse_network_operator_spec(
                 cid_audit_dir, row["network"]
             )
         except OSError as exc:
@@ -89,12 +90,20 @@ if args.on_cluster_audit_dir:
             )
         except ArithmeticError as exc:
             print(
-                f"ERR: LOOK INTO {cid.strip()}: {exc}"
+                f"ERR: LOOK INTO {row["cid"]}: {exc}"
+            )
+
+        # Parse the nodes spec and merge into row
+        try:
+            csv_rows[i] = csv_rows[i] | data.parse_nodes_spec(cid_audit_dir)
+        except OSError as exc:
+            print(
+                f"WARN: failed to parse nodes spec from {cid_audit_dir}: {exc}"
             )
 
         for metric in ["egress_network_policy", "egress_cidrs", "multicast"]:
             try:
-                csv_rows[i][metric] = file_not_empty(cid_audit_dir, metric)
+                csv_rows[i][metric] = data.file_not_empty(cid_audit_dir, metric)
             except OSError as exc:
                 print(f"WARN: failed to parse {metric} from {cid_audit_dir}: {exc}")
                 csv_rows[i][metric] = "?"
