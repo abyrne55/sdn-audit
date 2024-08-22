@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REASON="${REASON:-sdn-audit}"
+TIMEOUT="timeout -v -s INT -k 2s 9s"
 
 if [ "$#" -ne 2 ]; then
     echo "error: incorrect number of arguments"
@@ -12,27 +13,31 @@ if [ "$#" -ne 2 ]; then
 fi
 
 while read CID; do
-    
+    OUT="$2/$CID"
+
+    # Skip this cluster entirely if we already have the 5 files this loop generates
+    if [ $(ls -1 $OUT 2>/dev/null | wc -l) -eq 5 ]; then
+        echo Skipping $CID
+        continue
+    fi
     echo $CID
 
     # Log into the cluster
     ocm backplane login $CID || continue
 
-    OUT="$2/$CID"
+    # Make the output directory
     mkdir -p $OUT
 
     # We unset/set the 'e' flag here because these commands are expected to return 
     # error codes in many normal situations
     set +e
     # Describe the nodes and network operator resources (will be parsed by audit.py)
-    [ -f $OUT/nodes.json ] || oc get nodes -o json > $OUT/nodes.json
-    [ -f $OUT/network.operator.json ] || oc get network.operator cluster -o json > $OUT/network.operator.json
+    [ -f $OUT/nodes.json ] || $TIMEOUT oc get nodes -o json > $OUT/nodes.json
+    [ -f $OUT/network.operator.json ] || $TIMEOUT oc get network.operator cluster -o json > $OUT/network.operator.json
 
     # Test a few key resources for certain conditions. 
-    [ -f $OUT/egress_cidrs ] || oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
-    [ -f $OUT/multicast ] || oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
-    [ -f $OUT/egress_network_policy ] || ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
+    [ -f $OUT/egress_cidrs ] || $TIMEOUT oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
+    [ -f $OUT/multicast ] || $TIMEOUT oc get netnamespace -o yaml 2>/dev/null | grep 'netnamespace.network.openshift.io/multicast-enabled=true' 1> $OUT/multicast
+    [ -f $OUT/egress_network_policy ] || $TIMEOUT ocm backplane elevate "$REASON" -- get EgressNetworkPolicy -A 1> $OUT/egress_network_policy 2>/dev/null
     set -e
-
-    
 done < $1
