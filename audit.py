@@ -3,6 +3,7 @@ import argparse
 import csv
 import os
 import time
+from json import decoder
 from requests_cache import install_cache, NEVER_EXPIRE
 from requests import exceptions as req_exceptions
 
@@ -85,21 +86,19 @@ if args.on_cluster_audit_dir:
                 cid_audit_dir, row["network"]
             )
         except OSError as exc:
-            print(
-                f"WARN: failed to parse network operator spec from {cid_audit_dir}: {exc}"
-            )
+            print(f"WARN: failed to open network operator spec from {cid_audit_dir}: {exc}")
         except ArithmeticError as exc:
-            print(
-                f"ERR: LOOK INTO {row["cid"]}: {exc}"
-            )
+            print(f"ERR: LOOK INTO {row["cid"]}: {exc}")
+        except decoder.JSONDecodeError as exc:
+            print(f"ERR: malformed network operator JSON in {cid_audit_dir}: {exc}")
 
         # Parse the nodes spec and merge into row
         try:
             csv_rows[i] = csv_rows[i] | data.parse_nodes_spec(cid_audit_dir)
         except OSError as exc:
-            print(
-                f"WARN: failed to parse nodes spec from {cid_audit_dir}: {exc}"
-            )
+            print(f"WARN: failed to parse nodes spec from {cid_audit_dir}: {exc}")
+        except decoder.JSONDecodeError as exc:
+            print(f"ERR: malformed nodes JSON in {cid_audit_dir}: {exc}")
 
         for metric in ["egress_network_policy", "egress_cidrs", "multicast"]:
             try:
