@@ -100,6 +100,18 @@ if args.on_cluster_audit_dir:
         except decoder.JSONDecodeError as exc:
             print(f"ERR: malformed nodes JSON in {cid_audit_dir}: {exc}")
 
+        # Parse the cluster version status and merge into row
+        try:
+            csv_rows[i] = csv_rows[i] | data.parse_cluster_version_status(
+                cid_audit_dir, row["version"]
+            )
+        except OSError as exc:
+            print(f"WARN: failed to open clusterversion status from {cid_audit_dir}: {exc}")
+        except ArithmeticError as exc:
+            print(f"ERR: LOOK INTO {row["cid"]}: {exc}")
+        except decoder.JSONDecodeError as exc:
+            print(f"ERR: malformed clusterversion JSON in {cid_audit_dir}: {exc}")
+
         for metric in ["egress_network_policy", "egress_cidrs", "multicast"]:
             try:
                 csv_rows[i][metric] = data.file_not_empty(cid_audit_dir, metric)

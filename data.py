@@ -111,6 +111,39 @@ def parse_nodes_spec(cid_audit_dir: str) -> dict:
     return audit_res
 
 
+def parse_cluster_version_status(cid_audit_dir: str, expected_version=None) -> dict:
+    """
+    Returns a dictionary of info extracted from the cluster version JSON status
+    contained within on-cluster-audit results (mainly just the "born version" for now),
+    optionally with a sanity check of the expected version (raises ArithmeticError if
+    expectation not met)
+    """
+    cluster_version_path = os.path.join(cid_audit_dir, "cluster_version.json")
+    with open(cluster_version_path, "r", encoding="UTF-8") as f:
+        cluster_version_status = json.load(f)["status"]
+        version = cluster_version_status["desired"]["version"].strip().lower()
+        if expected_version is not None and version != expected_version.strip().lower():
+            raise ArithmeticError(
+                f"expected cluster version {expected_version} but cluster reports desired version is {version}"
+            )
+        audit_res = {
+            "born_version": "?",
+        }
+        try:
+            # Find the oldest "completed" version
+            version_history = [
+                d
+                for d in cluster_version_status["history"]
+                if d["state"] == "Completed"
+            ]
+            audit_res["born_version"] = min(
+                version_history, key=lambda x: x["startedTime"]
+            )["version"]
+        except KeyError as exc:
+            print(f"WARN: {cluster_version_path} missing expected key {exc}")
+    return audit_res
+
+
 def machine_type_cpu_qty(ocm: OCMClient, machine_type: str) -> int:
     """Returns the number of vCPUs present in a given machine type"""
     return ocm.get("/api/clusters_mgmt/v1/machine_types/" + machine_type).json()["cpu"][

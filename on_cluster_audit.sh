@@ -15,8 +15,8 @@ fi
 while read CID; do
     OUT="$2/$CID"
 
-    # Skip this cluster entirely if we already have the 5 files this loop generates
-    if [ $(ls -1 $OUT 2>/dev/null | wc -l) -eq 5 ]; then
+    # Skip this cluster entirely if we already have the 6 files this loop generates
+    if [ $(ls -1 $OUT 2>/dev/null | wc -l) -eq 6 ]; then
         echo Skipping $CID
         continue
     fi
@@ -31,9 +31,10 @@ while read CID; do
     # We unset/set the 'e' flag here because these commands are expected to return 
     # error codes in many normal situations
     set +e
-    # Describe the nodes and network operator resources (will be parsed by audit.py)
+    # Describe the nodes, network operator, and clusterversion resources (will be parsed by audit.py)
     [ -f $OUT/nodes.json ] || $TIMEOUT oc get nodes -o json > $OUT/nodes.json
     [ -f $OUT/network.operator.json ] || $TIMEOUT oc get network.operator cluster -o json > $OUT/network.operator.json
+    [ -f $OUT/cluster_version.json ] || $TIMEOUT oc get clusterversion version -o json > $OUT/cluster_version.json
 
     # Test a few key resources for certain conditions. 
     [ -f $OUT/egress_cidrs ] || $TIMEOUT oc get hostsubnet -o yaml 2>/dev/null | grep egressCIDRs 1> $OUT/egress_cidrs
