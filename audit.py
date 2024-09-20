@@ -103,7 +103,7 @@ if args.on_cluster_audit_dir:
         # Parse the cluster version status and merge into row
         try:
             csv_rows[i] = csv_rows[i] | data.parse_cluster_version_status(
-                cid_audit_dir, row["version"]
+                cid_audit_dir, None #row["version"] #disabled version check
             )
         except OSError as exc:
             print(f"WARN: failed to open clusterversion status from {cid_audit_dir}: {exc}")
